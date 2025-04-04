@@ -43,7 +43,7 @@ class Proc:
         """Taking negative logarithm"""
         args = self.args
 
-        if args.minus_log == "True":
+        if args.minus_log == "True" or args.minus_log is True:
             # the following python code makes device synchronization,
             # see warning in https://docs.cupy.dev/en/stable/reference/generated/cupy.place.html
             # and https://github.com/cupy/cupy/blob/118ade4a146d1cc68519f7f661f2c145f0b942c9/cupy/_indexing/insert.py#L35
