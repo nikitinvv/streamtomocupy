@@ -1,5 +1,6 @@
 import cupy as cp
 import numpy as np
+import sys
 
 from streamtomocupy import rec
 from streamtomocupy import proc
@@ -19,6 +20,9 @@ class StreamRecon():
         in_dtype = args.in_dtype
         ngpus = args.ngpus
         
+        if ni%2 != 0:
+            raise Exception('data size in the last dimension should be even')
+
         if (args.file_type == 'double_fov'):
             n = 2*ni
         else:
