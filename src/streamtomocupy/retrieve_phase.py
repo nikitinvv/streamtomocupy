@@ -139,8 +139,8 @@ def _paganin_filter_factorG(energy, dist, kf, pixel_size, db, W):
 
 
 def _calc_pad_width(dim, pixel_size, wavelength, dist):
-    pad_pix = cp.ceil(PI * wavelength * dist / pixel_size ** 2)
-    return int((pow(2, cp.ceil(cp.log2(dim + pad_pix))) - dim) * 0.5)
+    pad_pix = int(cp.ceil(PI * wavelength * dist / pixel_size ** 2))
+    return (2**int(cp.ceil(cp.log2(dim + pad_pix))) - dim) // 2
 
 
 def _calc_pad_val(data):
