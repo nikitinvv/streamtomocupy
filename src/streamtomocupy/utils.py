@@ -2,19 +2,25 @@ import cupy as cp
 import numpy as np
 from concurrent.futures import wait
 
+
 def _copy(res, u, st, end):
     res[st:end] = u[st:end]
 
+
 def copy(u, res, pool):
     nthreads = pool._max_workers
-    nthreads = min(nthreads,u.shape[0])
-    nchunk = int(np.ceil(u.shape[0]/nthreads))    
-    futures = [pool.submit(_copy, res, u, k*nchunk, min((k+1)*nchunk, u.shape[0])) for k in range(nthreads)]        
+    nthreads = min(nthreads, u.shape[0])
+    nchunk = int(np.ceil(u.shape[0] / nthreads))
+    futures = [
+        pool.submit(_copy, res, u, k * nchunk, min((k + 1) * nchunk, u.shape[0]))
+        for k in range(nthreads)
+    ]
     wait(futures)
     return res
 
 
-place_kernel = cp.RawKernel(r'''                            
+place_kernel = cp.RawKernel(
+    r"""                            
     extern "C"                
     void __global__ place(float* f, int n0, int n1, int n2)
     {
@@ -32,12 +38,13 @@ place_kernel = cp.RawKernel(r'''
         if (isinf(f[ind]))
             f[ind] = 0;                                   
     }
-    ''', 'place')
+    """,
+    "place",
+)
 
 
-
-
-conv2d_kernel = cp.RawKernel(r'''                            
+conv2d_kernel = cp.RawKernel(
+    r"""                            
     extern "C"                
     void __global__ conv2d(float* out, float* x, float* w, int stride0, int stride1, 
                              int b, int co, int ho, int wo,
@@ -72,13 +79,15 @@ conv2d_kernel = cp.RawKernel(r'''
             out[indo] = outt;
         }
     }
-    ''', 'conv2d')
+    """,
+    "conv2d",
+)
 
-# conv_transpose2d_kernel = cp.RawKernel(r'''                            
-#     extern "C"                
-#     void __global__ conv2dtranspose(float* out, float* x, float* w, int stride0, int stride1, 
+# conv_transpose2d_kernel = cp.RawKernel(r'''
+#     extern "C"
+#     void __global__ conv2dtranspose(float* out, float* x, float* w, int stride0, int stride1,
 #                              int b, int co, int ho, int wo,
-#                              int ci, int hi, int wi, 
+#                              int ci, int hi, int wi,
 #                              int groups, int chunk, int chunko,
 #                              int hk, int wk)
 #     {
@@ -87,35 +96,36 @@ conv2d_kernel = cp.RawKernel(r'''
 #         int tz = blockDim.z * blockIdx.z + threadIdx.z;
 #         if (tx >= wo || ty >= ho || tz >= b)
 #             return;
-        
-        
+
+
 #         int iii,jjj;
 #         int indx, indw,indo;
 #         float xt;
 #         float v;
 #         for (int g=0; g<groups;g++)
 #         for (int igo=g*chunko; igo<(g+1)*chunko;igo++)
-#         {       
-#             indx = tz*co*ho*wo + igo*ho*wo + ty*wo+tx;                                  
-#             xt = x[indx];                                                   
-            
-#             for (int ig=g*chunk; ig<(g+1)*chunk;ig++)                        
+#         {
+#             indx = tz*co*ho*wo + igo*ho*wo + ty*wo+tx;
+#             xt = x[indx];
+
+#             for (int ig=g*chunk; ig<(g+1)*chunk;ig++)
 #             for (int ii=0; ii<hk; ii++)
 #             for (int jj=0; jj<wk; jj++)
-#             {                                
-#                 iii = ii+ty*stride0;        
-#                 jjj = jj+tx*stride1;                    
+#             {
+#                 iii = ii+ty*stride0;
+#                 jjj = jj+tx*stride1;
 #                 indo = tz*ci*hi*wi + ig*hi*wi + iii*wi+jjj;
-#                 indw = igo*ci*hk*wk+ig*hk*wk+ii*wk+jj;                                                    
-#                 v = xt*w[indw];                    
-#                 //out[indo] += v;                
+#                 indw = igo*ci*hk*wk+ig*hk*wk+ii*wk+jj;
+#                 v = xt*w[indw];
+#                 //out[indo] += v;
 #                 atomicAdd(&(out[indo]), v);
-#             }            
+#             }
 #         }
 #     }
 #     ''', 'conv2dtranspose')
 
-conv_transpose2d_kernel = cp.RawKernel(r'''                            
+conv_transpose2d_kernel = cp.RawKernel(
+    r"""                            
     extern "C"                
     void __global__ conv2dtranspose(float* out, float* x, float* w, int stride0, int stride1, 
                              int b, int co, int ho, int wo,
@@ -183,5 +193,6 @@ conv_transpose2d_kernel = cp.RawKernel(r'''
             }
         }
     }
-    ''', 'conv2dtranspose')
-
+    """,
+    "conv2dtranspose",
+)

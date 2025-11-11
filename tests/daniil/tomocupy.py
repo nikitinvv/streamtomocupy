@@ -76,18 +76,24 @@ def timeit_my(func):
 
     return gettime
 
+
 @timeit_my
 def hdf5_loader(path_to_data):
     log.info("Loading data")
     h5f = h5py.File(path_to_data, "r")
-    
-    keys = h5f['entry1/flyScanDetector/image_key'][:]
-    projdata = h5f['entry1/flyScanDetector/data'][:]
-    angles = np.float32(h5f['entry1/flyScanDetector/zebraSM1'][:])
+
+    keys = h5f["entry1/flyScanDetector/image_key"][:]
+    projdata = h5f["entry1/flyScanDetector/data"][:]
+    angles = np.float32(h5f["entry1/flyScanDetector/zebraSM1"][:])
 
     log.info("Loading complete")
     h5f.close()
-    return projdata[keys==1,:,:], projdata[keys==2,:,:], angles[keys==0], projdata[keys==0,:,:]
+    return (
+        projdata[keys == 1, :, :],
+        projdata[keys == 2, :, :],
+        angles[keys == 0],
+        projdata[keys == 0, :, :],
+    )
 
 
 @timeit_my
@@ -95,15 +101,20 @@ def CoR_calc(data, darks, flats):
     log.info("CoR estimation")
     center_search_width = 100
     center_search_step = 0.5
-    center_search_ind = data.shape[0]//2
-    rotation_axis = find_center.find_center_vo(data, darks, flats,
-                                            ind=center_search_ind,
-                                            smin=-center_search_width, 
-                                            smax=center_search_width, 
-                                            step=center_search_step)
+    center_search_ind = data.shape[0] // 2
+    rotation_axis = find_center.find_center_vo(
+        data,
+        darks,
+        flats,
+        ind=center_search_ind,
+        smin=-center_search_width,
+        smax=center_search_width,
+        step=center_search_step,
+    )
     log.info("center of rotation: {}".format(rotation_axis))
     log.info("CoR estimation complete")
     return rotation_axis
+
 
 @timeit_my
 def reconstruction_tomocupy(data, darks, flats, rotation_axis, angles):
@@ -113,50 +124,55 @@ def reconstruction_tomocupy(data, darks, flats, rotation_axis, angles):
         data=data,
         dark=darks,
         flat=flats,
-        ncz=4,  # chunk size for GPU processing (multiple of 2), 
+        ncz=4,  # chunk size for GPU processing (multiple of 2),
         rotation_axis=rotation_axis,  # rotation center should be around 1293
         dtype="float32",  # computation type, note  for float16 n should be a power of 2
-        reconstruction_algorithm = "lprec",
-        remove_stripe_method = 'fw',
-        fw_sigma = 1,
-        fw_level = 7,
-        fw_filter = 'sym16',
-        fbp_filter='parzen',
-        minus_log=True
+        reconstruction_algorithm="lprec",
+        remove_stripe_method="fw",
+        fw_sigma=1,
+        fw_level=7,
+        fw_filter="sym16",
+        fbp_filter="parzen",
+        minus_log=True,
     )
-    
+
     result = cl.recon_all(data, darks, flats, angles)
     log.info("Reconstruction complete")
     return result
 
+
 @timeit_my
 def save_images(data, path_to_folder):
     log.info("Perform saving of data into 3D tiff")
-    tifffile.imwrite(path_to_folder + 'reconstruction_tomocupy.tiff', data)    
+    tifffile.imwrite(path_to_folder + "reconstruction_tomocupy.tiff", data)
     log.info("Saving complete")
     return True
 
+
 def run_tomocupy_pipeline(path_to_data: str, output_folder: str) -> int:
     start_time = timeit.default_timer()
-    
+
     # TomoCuPy's Pipeline
-    
+
     flats, darks, angles, data = hdf5_loader(path_to_data)
-    
-    # formating for tomocupy input    
+
+    # formating for tomocupy input
     data = np.swapaxes(data, 0, 1)
-    darks = np.uint16(np.mean(darks,0))
-    darks = darks[np.newaxis,:]
-    flats = np.uint16(np.mean(flats,0))
-    flats = flats[np.newaxis,:]
+    darks = np.uint16(np.mean(darks, 0))
+    darks = darks[np.newaxis, :]
+    flats = np.uint16(np.mean(flats, 0))
+    flats = flats[np.newaxis, :]
 
     rotation_axis = CoR_calc(data, darks, flats)
 
     reconstruction = reconstruction_tomocupy(data, darks, flats, rotation_axis, angles)
 
     data_saved = save_images(reconstruction, output_folder)
-    
-    txtstr = "%s = %.3fs" % ('Total elapsed time for the pipeline',timeit.default_timer() - start_time)
+
+    txtstr = "%s = %.3fs" % (
+        "Total elapsed time for the pipeline",
+        timeit.default_timer() - start_time,
+    )
     log.info(txtstr)
     return data_saved
 

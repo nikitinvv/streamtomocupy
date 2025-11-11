@@ -77,18 +77,24 @@ def timeit_my(func):
 
     return gettime
 
+
 @timeit_my
 def hdf5_loader(path_to_data):
     log.info("Loading data")
     h5f = h5py.File(path_to_data, "r")
-    
-    keys = h5f['entry1/flyScanDetector/image_key'][:]
-    projdata = h5f['entry1/flyScanDetector/data'][:]
-    angles = np.float32(h5f['entry1/flyScanDetector/zebraSM1'][:])
+
+    keys = h5f["entry1/flyScanDetector/image_key"][:]
+    projdata = h5f["entry1/flyScanDetector/data"][:]
+    angles = np.float32(h5f["entry1/flyScanDetector/zebraSM1"][:])
 
     log.info("Loading complete")
     h5f.close()
-    return projdata[keys==1,:,:], projdata[keys==2,:,:], angles[keys==0], projdata[keys==0,:,:]
+    return (
+        projdata[keys == 1, :, :],
+        projdata[keys == 2, :, :],
+        angles[keys == 0],
+        projdata[keys == 0, :, :],
+    )
 
 
 @timeit_my
@@ -96,82 +102,98 @@ def CoR_calc(data, darks, flats):
     log.info("CoR estimation")
     center_search_width = 100
     center_search_step = 0.5
-    center_search_ind = data.shape[1]//2
-    rotation_axis = find_center_vo(data[:,center_search_ind], darks[:,center_search_ind], flats[:,center_search_ind],
-                                            smin=-center_search_width, 
-                                            smax=center_search_width, 
-                                            step=center_search_step)
+    center_search_ind = data.shape[1] // 2
+    rotation_axis = find_center_vo(
+        data[:, center_search_ind],
+        darks[:, center_search_ind],
+        flats[:, center_search_ind],
+        smin=-center_search_width,
+        smax=center_search_width,
+        step=center_search_step,
+    )
     log.info("center of rotation: {}".format(rotation_axis))
     log.info("CoR estimation complete")
     return rotation_axis
 
+
 @timeit_my
-def init(data_shape,flat_shape,dark_shape,dtype):
+def init(data_shape, flat_shape, dark_shape, dtype):
     log.info("StreamTomocuPy init")
-    
-    args = sconfig.read_args('daniil.conf')
+
+    args = sconfig.read_args("daniil.conf")
     args.nproj = data_shape[0]
     args.nz = data_shape[1]
     args.n = data_shape[2]
     args.nflat = flat_shape[0]
     args.ndark = dark_shape[0]
-    args.in_dtype = dtype    
+    args.in_dtype = dtype
     cl_recstream = streamrecon.StreamRecon(args)
     return cl_recstream
-    
+
+
 @timeit_my
 def reconstruction_streamtomocupy(cl, data, darks, flats, rotation_axis, angles):
-    log.info("StreamTomocuPy Reconstruction")    
+    log.info("StreamTomocuPy Reconstruction")
     cl.args.rotation_axis = rotation_axis
-    #VN: note 'fw' filter makes it slower, you can check 'none' for comparison    
-    #cl.args.remove_stripe_method = 'none'    
+    # VN: note 'fw' filter makes it slower, you can check 'none' for comparison
+    # cl.args.remove_stripe_method = 'none'
     cl.rec(data, darks, flats, angles)
     res = cl.get_res()[2]
     log.info("Reconstruction by sinogram chunks is complete")
     return res
 
+
 @timeit_my
 def reconstruction_streamtomocupy_steps(cl, data, darks, flats, rotation_axis, angles):
-    log.info("StreamTomocuPy Reconstruction in 3 steps")    
+    log.info("StreamTomocuPy Reconstruction in 3 steps")
     cl.args.rotation_axis = rotation_axis
-    cl.args.retrieve_phase_method = 'paganin'
-    
-    #VN: maybe more adjustments for paganin
-    cl.args.fbp_filter = 'shepp'
+    cl.args.retrieve_phase_method = "paganin"
+
+    # VN: maybe more adjustments for paganin
+    cl.args.fbp_filter = "shepp"
     cl.args.retrieve_phase_alpha = 0.003
-    
-    #VN: note 'fw' filter makes it slower, you can check 'none' for comparison    
-    #cl.args.remove_stripe_method = 'none'    
-    
+
+    # VN: note 'fw' filter makes it slower, you can check 'none' for comparison
+    # cl.args.remove_stripe_method = 'none'
+
     cl.rec_steps(data, darks, flats, angles)
     res = cl.get_res()[2]
-    log.info("Reconstruction by sinogram and projections chunks (with steps) is complete")
+    log.info(
+        "Reconstruction by sinogram and projections chunks (with steps) is complete"
+    )
     return res
+
 
 @timeit_my
 def save_images(data, path_to_folder):
     log.info("Perform saving of data into 3D tiff")
-    tifffile.imwrite(path_to_folder + 'reconstruction_tomocupy.tiff', data)    
+    tifffile.imwrite(path_to_folder + "reconstruction_tomocupy.tiff", data)
     log.info("Saving complete")
     return True
 
+
 def run_streamtomocupy_pipeline(path_to_data: str, output_folder: str) -> int:
     start_time = timeit.default_timer()
-    
-    # StreamTomoCuPy's Pipeline    
-    flats, darks, angles, data = hdf5_loader(path_to_data)
-    
-    # formating for tomocupy input    
-    angles = (angles/180*np.pi).astype('float32')
 
-    cl = init(data.shape,flats.shape,darks.shape,data.dtype)
-    rotation_axis = CoR_calc(data, darks, flats)    
-    reconstruction = reconstruction_streamtomocupy(cl, data, darks, flats, rotation_axis, angles)
+    # StreamTomoCuPy's Pipeline
+    flats, darks, angles, data = hdf5_loader(path_to_data)
+
+    # formating for tomocupy input
+    angles = (angles / 180 * np.pi).astype("float32")
+
+    cl = init(data.shape, flats.shape, darks.shape, data.dtype)
+    rotation_axis = CoR_calc(data, darks, flats)
+    reconstruction = reconstruction_streamtomocupy(
+        cl, data, darks, flats, rotation_axis, angles
+    )
     # VN: if phase retrieval is needed run this instead
     # reconstruction = reconstruction_streamtomocupy_steps(cl, data, darks, flats, rotation_axis, angles)
     data_saved = save_images(reconstruction, output_folder)
-    
-    txtstr = "%s = %.3fs" % ('Total elapsed time for the pipeline',timeit.default_timer() - start_time)
+
+    txtstr = "%s = %.3fs" % (
+        "Total elapsed time for the pipeline",
+        timeit.default_timer() - start_time,
+    )
     log.info(txtstr)
     return data_saved
 

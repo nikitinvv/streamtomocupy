@@ -1,0 +1,24 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+{
+	"name": "Existing Dockerfile",
+	"build": {
+		"context": "..",
+		"dockerfile": "../.devcontainer/Dockerfile"
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.debugpy",
+				"ms-python.black-formatter",
+				"charliermarsh.ruff",
+				"ms-azuretools.vscode-docker",
+				"ms-python.isort",
+				"mhutchie.git-graph",
+				"donjayamanne.githistory",
+				"tamasfe.even-better-toml"
+			]
+		}
+	}
+}
