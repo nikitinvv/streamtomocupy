@@ -214,7 +214,5 @@ def _reciprocal_coord(pixel_size, num_grid):
     ndarray
         Grid coordinates.
     """
-    n = num_grid - 1
-    rc = cp.arange(-n, num_grid, 2, dtype=cp.float32)
-    rc *= 0.5 / (n * pixel_size)
+    rc = cp.fft.fftshift(cp.fft.fftfreq(num_grid,d=pixel_size))
     return rc
