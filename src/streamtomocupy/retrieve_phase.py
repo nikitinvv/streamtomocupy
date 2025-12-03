@@ -57,9 +57,8 @@ def paganin_filter(
     ndarray
         Approximated 3D tomographic phase data.
     """
-
     # New dimensions and pad value after padding.
-    py, pz, val = _calc_pad(data, pixel_size, dist, energy, pad)
+    py, pz = _calc_pad(data, pixel_size, dist, energy, pad)
 
     # Compute the reciprocal grid.
     dx, dy, dz = data.shape
@@ -72,7 +71,8 @@ def paganin_filter(
             _paganin_filter_factorG(energy, dist, kf, pixel_size, db, W)
         )
 
-    prj = cp.full((dy + 2 * py, dz + 2 * pz), val, dtype=data.dtype)
+    prj = cp.empty([dy + 2 * py, dz + 2 * pz], dtype=data.dtype)
+    
     _retrieve_phase(data, phase_filter, py, pz, prj, pad)
 
     return data
@@ -81,14 +81,10 @@ def paganin_filter(
 def _retrieve_phase(data, phase_filter, px, py, prj, pad):
     dx, dy, dz = data.shape
     num_jobs = data.shape[0]
-    normalized_phase_filter = phase_filter / phase_filter.max()
-
-    for m in range(num_jobs):
-        prj[px : dy + px, py : dz + py] = data[m]
-        prj[:px] = prj[px]
-        prj[-px:] = prj[-px - 1]
-        prj[:, :py] = prj[:, py][:, cp.newaxis]
-        prj[:, -py:] = prj[:, -py - 1][:, cp.newaxis]
+    normalized_phase_filter = phase_filter / phase_filter.max()    
+    
+    for m in range(num_jobs):        
+        prj[:] = cp.pad(data[m],((px,px),(py,py)),mode='edge')
         fproj = fft2(prj)
         fproj *= normalized_phase_filter
         proj = cp.real(ifft2(fproj))
@@ -125,13 +121,12 @@ def _calc_pad(data, pixel_size, dist, energy, pad):
     """
     dx, dy, dz = data.shape
     wavelength = _wavelength(energy)
-    py, pz, val = 0, 0, 0
+    py, pz, = 0, 0
     if pad:
-        val = _calc_pad_val(data)
         py = _calc_pad_width(dy, pixel_size, wavelength, dist)
         pz = _calc_pad_width(dz, pixel_size, wavelength, dist)
 
-    return py, pz, val
+    return py, pz
 
 
 def _paganin_filter_factor(energy, dist, alpha, w2):
@@ -149,12 +144,8 @@ def _paganin_filter_factorG(energy, dist, kf, pixel_size, db, W):
 
 
 def _calc_pad_width(dim, pixel_size, wavelength, dist):
-    pad_pix = cp.ceil(PI * wavelength * dist / pixel_size**2)
-    return int((pow(2, cp.ceil(cp.log2(dim + pad_pix))) - dim) * 0.5)
-
-
-def _calc_pad_val(data):
-    return cp.mean((data[..., 0] + data[..., -1]) * 0.5)
+    pad_pix = int(cp.ceil(PI * wavelength * dist / pixel_size ** 2))
+    return (2**int(cp.ceil(cp.log2(dim + pad_pix))) - dim) // 2
 
 
 def _reciprocal_grid(pixel_size, nx, ny):
@@ -224,7 +215,5 @@ def _reciprocal_coord(pixel_size, num_grid):
     ndarray
         Grid coordinates.
     """
-    n = num_grid - 1
-    rc = cp.arange(-n, num_grid, 2, dtype=cp.float32)
-    rc *= 0.5 / (n * pixel_size)
+    rc = cp.fft.fftshift(cp.fft.fftfreq(num_grid,d=pixel_size))
     return rc
