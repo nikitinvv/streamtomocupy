@@ -86,8 +86,9 @@ class Rec:
         )
         t = cp.fft.rfftfreq(self.ne).astype("float32")
         center, _ = self.center_fix()
-        shift = cp.tile(cp.float32(-center + self.n / 2), [data.shape[0], 1, 1])
-        w = self.wfilter[igpu] * cp.exp(-2 * cp.pi * 1j * t * shift)
+        # shift = cp.tile(cp.float32(-center + self.n / 2), [data.shape[0], 1, 1])
+        t *= (-center + self.n / 2)
+        w = cp.tile(self.wfilter[igpu] * cp.exp(-2 * cp.pi * 1j * t),[data.shape[0], 1, 1])
         self.cl_filter[igpu].filter(tmp, w, stream)
         data[:] = tmp[:, :, self.ne // 2 - self.n // 2 : self.ne // 2 + self.n // 2]
 
