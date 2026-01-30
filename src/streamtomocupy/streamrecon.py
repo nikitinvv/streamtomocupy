@@ -4,7 +4,7 @@ import sys
 
 from streamtomocupy import rec
 from streamtomocupy import proc
-from streamtomocupy.chunking import gpu_batch
+from streamtomocupy.chunking import Chunking
 
 cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
 
@@ -55,18 +55,8 @@ class StreamRecon:
         )
         nbytes4 += 2 * (ncz * n * n) * np.dtype(args.dtype).itemsize
         nbytes = max(nbytes1, nbytes2, nbytes3, nbytes4)
-
-        # create CUDA streams and allocate pinned memory
-        self.stream = [[[] for _ in range(3)] for _ in range(ngpus)]
-        self.pinned_mem = [[] for _ in range(ngpus)]
-        self.gpu_mem = [[] for _ in range(ngpus)]
-
-        for igpu in range(ngpus):
-            with cp.cuda.Device(igpu):
-                self.pinned_mem[igpu] = cp.cuda.alloc_pinned_memory(nbytes)
-                self.gpu_mem[igpu] = cp.cuda.alloc(nbytes)
-                for k in range(3):
-                    self.stream[igpu][k] = cp.cuda.Stream(non_blocking=False)
+        
+        self.cl_chunking = Chunking(nbytes, ngpus)
 
         # classes for processing
         self.cl_rec = rec.Rec(args, nproj, ncz, n, ni, ngpus)
@@ -85,10 +75,12 @@ class StreamRecon:
         self.ni = ni
         self.args = args
 
+        self.gpu_batch = self.cl_chunking.gpu_batch
+
         print("class created")
 
     def proc_sino(self, res, data, dark, flat):
-        @gpu_batch(self.ncz, self.ngpus, axis_out=1, axis_inp=1)
+        @self.gpu_batch(self.ncz, axis_out=1, axis_inp=1)
         def _proc_sino(self, res, data, dark, flat):
             """Processing a sinogram data chunk"""
 
@@ -101,7 +93,7 @@ class StreamRecon:
         return _proc_sino(self, res, data, dark, flat)
 
     def proc_proj(self, res, data):
-        @gpu_batch(self.ncproj, self.ngpus, axis_out=0, axis_inp=0)
+        @self.gpu_batch(self.ncproj, axis_out=0, axis_inp=0)
         def _proc_proj(self, res, data):
             """Processing a projection data chunk"""
 
@@ -112,7 +104,7 @@ class StreamRecon:
         return _proc_proj(self, res, data)
 
     def rec_sino(self, res, data, theta):
-        @gpu_batch(self.ncz, self.ngpus, axis_out=0, axis_inp=1)
+        @self.gpu_batch(self.ncz, axis_out=0, axis_inp=1)
         def _rec_sino(self, res, data, theta):
             """Filtered backprojection with sinogram data chunks"""
             data = cp.ascontiguousarray(data.swapaxes(0, 1))
@@ -123,10 +115,9 @@ class StreamRecon:
         return _rec_sino(self, res, data, theta)
 
     def rec(self, data, dark, flat, theta):
-        @gpu_batch(self.ncz, self.ngpus, axis_out=0, axis_inp=1)
+        @self.gpu_batch(self.ncz, axis_out=0, axis_inp=1)
         def _rec(self, res, data, dark, flat, theta):
             """Processing + filtered backprojection with sinogram data chunks"""
-
             self.cl_proc.remove_outliers(data)
             self.cl_proc.remove_outliers(dark)
             self.cl_proc.remove_outliers(flat)
@@ -136,6 +127,7 @@ class StreamRecon:
             self.cl_proc.remove_stripe(data)
             self.cl_proc.minus_log(data)
             data = cp.ascontiguousarray(data.swapaxes(0, 1))
+            
             data = self.cl_rec.pad360(data)  # may change data shape
             self.cl_rec.fbp_filter_center(data)
             self.cl_rec.backprojection(res, data, theta)
